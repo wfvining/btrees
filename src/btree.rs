@@ -7,7 +7,7 @@ use std::io::{Seek, SeekFrom, Write, Read, BufReader};
 
 use bincode::{serialize, deserialize,
               deserialize_from, serialized_size,
-              SizeLimit};
+              SizeLimit, Infinite};
 
 type BTreeData = Option<(i64,u64)>;
 
@@ -76,7 +76,7 @@ impl BTreeNode {
 
     fn store_node(&self, tree: &mut BTree, offset: u64)
                   -> Result<(), IOError> {
-        let encoded_node: Vec<u8> = serialize(self, SizeLimit::Infinite)
+        let encoded_node: Vec<u8> = serialize(self, Infinite)
             .unwrap(); // ?? Should we expct serialize to always succeed
         match tree.file.seek(SeekFrom::Start(offset)) {
             Ok(_)    => tree.file.write_all(&encoded_node[..]),
@@ -89,6 +89,17 @@ impl BTreeNode {
             parent:   parent,
             children: vec![None; 2*k],
             data:     vec![None; 2*k + 1],
+        }
+    }
+
+    /// Test whether a node is a leaf.
+    ///
+    /// Returns true if the node has no children, otherwise returns
+    /// false.
+    fn is_leaf(&self) -> bool {
+        match self.children[0] {
+            Some(_) => false,
+            None    => true,
         }
     }
 }
@@ -128,7 +139,7 @@ impl BTree {
             };
         let root_node = BTreeNode::new(k, 0);
         let header = BTreeHeader(serialized_size(&root_node), k);
-        let serialized_header = serialize(&header, SizeLimit::Infinite)
+        let serialized_header = serialize(&header, Infinite)
             .unwrap();
         match (&mut file).write_all(&serialized_header) {
             Ok(_)        =>{
@@ -169,7 +180,7 @@ impl BTree {
         {
             let mut reader = BufReader::new(&mut file);
             header =
-                deserialize_from(&mut reader, SizeLimit::Infinite).unwrap();
+                deserialize_from(&mut reader, Infinite).unwrap();
         }
         let BTreeHeader(node_length, k) = header;
         let mut tree = BTree { file: file,
@@ -189,17 +200,6 @@ impl BTree {
 
     /// insert a node into the BTree 
     pub fn insert(self, key: i64, data: BTreeData) -> Result<(), BTreeError> {
-        // consider how to place this data (by making the BTree append
-        // only CouchDB can store globs of data with arbitrary
-        // sizes. The new glob is appended to the end of the file,
-        // followed by a tag indicating its size, the reading through
-        // nodes is simply a matter of skipping each glob of data
-        // until you find the one you are looking for).
-        //
-        // Without append-only operation we need to do some sort of
-        // inderection so the BTree node contains a pointer to the
-        // actual location of the data.
-        //
         // For the first cut, I will assume the data is all of a fixed
         // size, thus We can just do insert/delete/update without much
         // difficulty.
@@ -209,11 +209,25 @@ impl BTree {
         // difficulty of needing to re-write large chunks of the tree
         // whenever we do a delete (such as if the tree is mapped to a
         // flat array). Instead we just change the "pointers."
-        Err(BTreeError::Exists)
+        Err(BTreeError::NotFound)
     }
 
-    pub fn lookup(self, key: i64) -> Result<BTreeData, BTreeError> {
+    fn search(&self, node: BTreeNode, key: i64)
+              -> Result<BTreeData, BTreeError> {
+        for val in node.data { // ? Do I need to do something to get an iterator?
+            match val {
+                Some(v) => if v < key {} else { return Ok(v) }, //! NO
+                None    => break,
+            }
+        }
         Err(BTreeError::NotFound)
+    }
+    
+    /// Find a key in the B-Tree.  I believe self must be mutable
+    /// because reading from a file mutates the handle (ie. the read
+    /// pointer moves).
+    pub fn lookup(&mut self, key: i64) -> Result<BTreeData, BTreeError> {
+        self.search(&self.root, key)
     }
 
     pub fn delete(self, key: i64) -> Result<(), BTreeError> {

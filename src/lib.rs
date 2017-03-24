@@ -8,13 +8,15 @@ pub mod btree;
 mod tests {
     use btree::{BTree};
     use std::error::Error;
+    use std::fs;
     
     #[test]
     /// Verify that we can create an empty tree, close it, and reopen
     /// it.
     fn open_empty_tree() {
+        let tree_name = "open_empty_tree";
         { // create a btree and let it go out of scope
-            match BTree::new("it_works", 4) {
+            match BTree::new(tree_name, 4) {
                 Ok(_btree)   => assert!(true),
                 Err(ioerror) => {
                     println!("failed to create btree: {}",
@@ -24,7 +26,7 @@ mod tests {
             }
         }
         { // open it again and verify that it is empty
-            match BTree::open("it_works") {
+            match BTree::open(tree_name) {
                 Ok(_btree)   => assert!(true),
                 Err(ioerror) => {
                     println!("failed to open btree: {}",
@@ -33,5 +35,6 @@ mod tests {
                 }
             }
         }
+        fs::remove_file(tree_name);
     }
 }
